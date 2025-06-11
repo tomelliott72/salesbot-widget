@@ -5,13 +5,12 @@ import {
   smoothStream,
   streamText,
 } from 'ai';
-import { auth, type UserType } from '@/app/(auth)/auth';
+
 import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
 import {
   createStreamId,
   deleteChatById,
   getChatById,
-  getMessageCountByUserId,
   getMessagesByChatId,
   getStreamIdsByChatId,
   saveChat,
@@ -75,23 +74,6 @@ export async function POST(request: Request) {
     const { id, message, selectedChatModel, selectedVisibilityType } =
       requestBody;
 
-    const session = await auth();
-
-    if (!session?.user) {
-      return new ChatSDKError('unauthorized:chat').toResponse();
-    }
-
-    const userType: UserType = session.user.type;
-
-    const messageCount = await getMessageCountByUserId({
-      id: session.user.id,
-      differenceInHours: 24,
-    });
-
-    if (messageCount > entitlementsByUserType[userType].maxMessagesPerDay) {
-      return new ChatSDKError('rate_limit:chat').toResponse();
-    }
-
     const chat = await getChatById({ id });
 
     if (!chat) {
@@ -101,14 +83,9 @@ export async function POST(request: Request) {
 
       await saveChat({
         id,
-        userId: session.user.id,
         title,
         visibility: selectedVisibilityType,
       });
-    } else {
-      if (chat.userId !== session.user.id) {
-        return new ChatSDKError('forbidden:chat').toResponse();
-      }
     }
 
     const previousMessages = await getMessagesByChatId({ id });
@@ -163,48 +140,55 @@ export async function POST(request: Request) {
           experimental_transform: smoothStream({ chunking: 'word' }),
           experimental_generateMessageId: generateUUID,
           tools: {
-            getWeather,
-            createDocument: createDocument({ session, dataStream }),
-            updateDocument: updateDocument({ session, dataStream }),
-            requestSuggestions: requestSuggestions({
-              session,
+            createDocument: createDocument({
               dataStream,
             }),
+            updateDocument: updateDocument({
+              dataStream,
+            }),
+            requestSuggestions: requestSuggestions({
+              dataStream,
+            }),
+            getWeather: getWeather,
           },
           onFinish: async ({ response }) => {
-            if (session.user?.id) {
-              try {
-                const assistantId = getTrailingMessageId({
-                  messages: response.messages.filter(
-                    (message) => message.role === 'assistant',
-                  ),
-                });
+            try {
+              const assistantId = getTrailingMessageId({
+                messages: response.messages.filter(
+                  (message) => message.role === 'assistant',
+                ),
+              });
 
-                if (!assistantId) {
-                  throw new Error('No assistant message found!');
-                }
+              const assistantMessage = response.messages.find(
+                (message) => message.id === assistantId,
+              );
 
-                const [, assistantMessage] = appendResponseMessages({
-                  messages: [message],
-                  responseMessages: response.messages,
-                });
-
-                await saveMessages({
-                  messages: [
-                    {
-                      id: assistantId,
-                      chatId: id,
-                      role: assistantMessage.role,
-                      parts: assistantMessage.parts,
-                      attachments:
-                        assistantMessage.experimental_attachments ?? [],
-                      createdAt: new Date(),
-                    },
-                  ],
-                });
-              } catch (_) {
-                console.error('Failed to save chat');
+              if (!assistantMessage) {
+                return;
               }
+
+              const messageParts =
+                typeof assistantMessage.content === 'string'
+                  ? [{ type: 'text', text: assistantMessage.content }]
+                  : assistantMessage.content;
+
+              await saveMessages({
+                messages: [
+                  {
+                    chatId: id,
+                    id: assistantMessage.id,
+                    role: 'assistant',
+                    parts: messageParts.filter(
+                      (part): part is { type: 'text'; text: string } =>
+                        part.type === 'text',
+                    ),
+                    attachments: [],
+                    createdAt: new Date(),
+                  },
+                ],
+              });
+            } catch (_) {
+              console.error('Failed to save chat');
             }
           },
           experimental_telemetry: {
@@ -255,12 +239,6 @@ export async function GET(request: Request) {
     return new ChatSDKError('bad_request:api').toResponse();
   }
 
-  const session = await auth();
-
-  if (!session?.user) {
-    return new ChatSDKError('unauthorized:chat').toResponse();
-  }
-
   let chat: Chat;
 
   try {
@@ -271,10 +249,6 @@ export async function GET(request: Request) {
 
   if (!chat) {
     return new ChatSDKError('not_found:chat').toResponse();
-  }
-
-  if (chat.visibility === 'private' && chat.userId !== session.user.id) {
-    return new ChatSDKError('forbidden:chat').toResponse();
   }
 
   const streamIds = await getStreamIdsByChatId({ chatId });
@@ -343,17 +317,12 @@ export async function DELETE(request: Request) {
     return new ChatSDKError('bad_request:api').toResponse();
   }
 
-  const session = await auth();
-
-  if (!session?.user) {
-    return new ChatSDKError('unauthorized:chat').toResponse();
-  }
-
   const chat = await getChatById({ id });
 
-  if (chat.userId !== session.user.id) {
-    return new ChatSDKError('forbidden:chat').toResponse();
-  }
+  // Optional: Add a check here if you want to prevent deletion of non-existent chats
+  // if (!chat) {
+  //   return new ChatSDKError('not_found:chat').toResponse();
+  // }
 
   const deletedChat = await deleteChatById({ id });
 

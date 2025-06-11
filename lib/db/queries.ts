@@ -16,9 +16,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
 import {
-  user,
   chat,
-  type User,
   document,
   type Suggestion,
   suggestion,
@@ -30,7 +28,6 @@ import {
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 import { generateUUID } from '../utils';
-import { generateHashedPassword } from './utils';
 import type { VisibilityType } from '@/components/visibility-selector';
 import { ChatSDKError } from '../errors';
 
@@ -42,52 +39,13 @@ import { ChatSDKError } from '../errors';
 const client = postgres(process.env.POSTGRES_URL!);
 const db = drizzle(client);
 
-export async function getUser(email: string): Promise<Array<User>> {
-  try {
-    return await db.select().from(user).where(eq(user.email, email));
-  } catch (error) {
-    throw new ChatSDKError(
-      'bad_request:database',
-      'Failed to get user by email',
-    );
-  }
-}
-
-export async function createUser(email: string, password: string) {
-  const hashedPassword = generateHashedPassword(password);
-
-  try {
-    return await db.insert(user).values({ email, password: hashedPassword });
-  } catch (error) {
-    throw new ChatSDKError('bad_request:database', 'Failed to create user');
-  }
-}
-
-export async function createGuestUser() {
-  const email = `guest-${Date.now()}`;
-  const password = generateHashedPassword(generateUUID());
-
-  try {
-    return await db.insert(user).values({ email, password }).returning({
-      id: user.id,
-      email: user.email,
-    });
-  } catch (error) {
-    throw new ChatSDKError(
-      'bad_request:database',
-      'Failed to create guest user',
-    );
-  }
-}
 
 export async function saveChat({
   id,
-  userId,
   title,
   visibility,
 }: {
   id: string;
-  userId: string;
   title: string;
   visibility: VisibilityType;
 }) {
@@ -95,7 +53,6 @@ export async function saveChat({
     return await db.insert(chat).values({
       id,
       createdAt: new Date(),
-      userId,
       title,
       visibility,
     });
@@ -123,13 +80,11 @@ export async function deleteChatById({ id }: { id: string }) {
   }
 }
 
-export async function getChatsByUserId({
-  id,
+export async function getChats({
   limit,
   startingAfter,
   endingBefore,
 }: {
-  id: string;
   limit: number;
   startingAfter: string | null;
   endingBefore: string | null;
@@ -141,11 +96,7 @@ export async function getChatsByUserId({
       db
         .select()
         .from(chat)
-        .where(
-          whereCondition
-            ? and(whereCondition, eq(chat.userId, id))
-            : eq(chat.userId, id),
-        )
+        .where(whereCondition)
         .orderBy(desc(chat.createdAt))
         .limit(extendedLimit);
 
@@ -192,10 +143,9 @@ export async function getChatsByUserId({
       hasMore,
     };
   } catch (error) {
-    throw new ChatSDKError(
-      'bad_request:database',
-      'Failed to get chats by user id',
-    );
+    // eslint-disable-next-line no-console
+    console.error('Error fetching chats:', error);
+    throw new ChatSDKError('bad_request:database', 'Failed to get chats');
   }
 }
 
@@ -282,13 +232,11 @@ export async function saveDocument({
   title,
   kind,
   content,
-  userId,
 }: {
   id: string;
   title: string;
   kind: ArtifactKind;
   content: string;
-  userId: string;
 }) {
   try {
     return await db
@@ -298,7 +246,6 @@ export async function saveDocument({
         title,
         kind,
         content,
-        userId,
         createdAt: new Date(),
       })
       .returning();
@@ -469,36 +416,6 @@ export async function updateChatVisiblityById({
   }
 }
 
-export async function getMessageCountByUserId({
-  id,
-  differenceInHours,
-}: { id: string; differenceInHours: number }) {
-  try {
-    const twentyFourHoursAgo = new Date(
-      Date.now() - differenceInHours * 60 * 60 * 1000,
-    );
-
-    const [stats] = await db
-      .select({ count: count(message.id) })
-      .from(message)
-      .innerJoin(chat, eq(message.chatId, chat.id))
-      .where(
-        and(
-          eq(chat.userId, id),
-          gte(message.createdAt, twentyFourHoursAgo),
-          eq(message.role, 'user'),
-        ),
-      )
-      .execute();
-
-    return stats?.count ?? 0;
-  } catch (error) {
-    throw new ChatSDKError(
-      'bad_request:database',
-      'Failed to get message count by user id',
-    );
-  }
-}
 
 export async function createStreamId({
   streamId,
