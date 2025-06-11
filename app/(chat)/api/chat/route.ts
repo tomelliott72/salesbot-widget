@@ -8,11 +8,9 @@ import {
 
 import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
 import {
-  createStreamId,
   deleteChatById,
   getChatById,
   getMessagesByChatId,
-  getStreamIdsByChatId,
   saveChat,
   saveMessages,
 } from '@/lib/db/queries';
@@ -74,21 +72,45 @@ export async function POST(request: Request) {
     const { id, message, selectedChatModel, selectedVisibilityType } =
       requestBody;
 
-    const chat = await getChatById({ id });
+    let chatDetails = await getChatById({ id });
+    let langflowChatId: string;
 
-    if (!chat) {
+    if (!chatDetails) {
       const title = await generateTitleFromUserMessage({
         message,
       });
-
-      await saveChat({
-        id,
-        title,
-        visibility: selectedVisibilityType,
-      });
+      // Use the incoming UUID as the langflow_chat_id for new chats for now.
+      // And use a placeholder for flow_id.
+      const newChatData = {
+        id: id, // chat.id (UUID)
+        name: title,
+        flow_id: "default_flow", // Placeholder
+        chat_id: id, // chat.chat_id (varchar), using UUID for now
+        is_public: selectedVisibilityType === 'public',
+      };
+      const savedChat = await saveChat(newChatData);
+      // Ensure we use the chat_id from the saved/fetched chat record for subsequent operations
+      // saveChat should return the created chat including its chat_id
+      if (savedChat && savedChat.chat_id) {
+        langflowChatId = savedChat.chat_id;
+        chatDetails = savedChat; // So chatDetails is populated for later use if needed
+      } else {
+        // Fallback or error if saveChat didn't return expected structure or failed silently
+        // For now, assume it worked and chat_id is what we set it to.
+        langflowChatId = newChatData.chat_id;
+        // Potentially re-fetch to be certain: chatDetails = await getChatById({ id });
+      }
+    } else {
+      langflowChatId = chatDetails.chat_id;
     }
 
-    const previousMessages = await getMessagesByChatId({ id });
+    // Ensure langflowChatId is defined before proceeding
+    if (!langflowChatId) {
+      console.error('Critical: langflowChatId could not be determined.');
+      return new ChatSDKError('unknown', 'Failed to determine chat session ID.').toResponse();
+    }
+
+    const previousMessages = await getMessagesByChatId({ id: langflowChatId });
 
     const messages = appendClientMessage({
       // @ts-expect-error: todo add type conversion from DBMessage[] to UIMessage[]
@@ -108,18 +130,19 @@ export async function POST(request: Request) {
     await saveMessages({
       messages: [
         {
-          chatId: id,
+          chat_id: langflowChatId, // Corrected: use langflowChatId (varchar)
           id: message.id,
-          role: 'user',
+          flow_id: "default_flow", // Added placeholder
+          role: 'user', // This will be mapped to sender_type by saveMessages if needed, or schema handles it
           parts: message.parts,
           attachments: message.experimental_attachments ?? [],
-          createdAt: new Date(),
+          // createdAt is handled by DB schema default
         },
       ],
     });
 
     const streamId = generateUUID();
-    await createStreamId({ streamId, chatId: id });
+    // await createStreamId({ streamId, chatId: id }); // createStreamId removed
 
     const stream = createDataStream({
       execute: (dataStream) => {
@@ -175,15 +198,16 @@ export async function POST(request: Request) {
               await saveMessages({
                 messages: [
                   {
-                    chatId: id,
+                    chat_id: langflowChatId, // Corrected: use langflowChatId (varchar)
                     id: assistantMessage.id,
-                    role: 'assistant',
+                    flow_id: "default_flow", // Added placeholder
+                    role: 'assistant', // This will be mapped to sender_type by saveMessages if needed, or schema handles it
                     parts: messageParts.filter(
                       (part): part is { type: 'text'; text: string } =>
                         part.type === 'text',
                     ),
                     attachments: [],
-                    createdAt: new Date(),
+                    // createdAt is handled by DB schema default
                   },
                 ],
               });
@@ -251,16 +275,17 @@ export async function GET(request: Request) {
     return new ChatSDKError('not_found:chat').toResponse();
   }
 
-  const streamIds = await getStreamIdsByChatId({ chatId });
+  // const streamIds = await getStreamIdsByChatId({ chatId }); // getStreamIdsByChatId removed
 
-  if (!streamIds.length) {
-    return new ChatSDKError('not_found:stream').toResponse();
-  }
+  // if (!streamIds.length) {
+  //   return new ChatSDKError('not_found:stream').toResponse();
+  // }
 
-  const recentStreamId = streamIds.at(-1);
+  // const recentStreamId = streamIds.at(-1);
+  const recentStreamId = null; // Placeholder as streamIds logic is removed
 
-  if (!recentStreamId) {
-    return new ChatSDKError('not_found:stream').toResponse();
+  if (!recentStreamId) { // This will now always be true, effectively disabling stream resumption here
+    return new ChatSDKError('not_found:stream', 'Stream resumption is temporarily unavailable.').toResponse();
   }
 
   const emptyDataStream = createDataStream({
@@ -284,11 +309,11 @@ export async function GET(request: Request) {
       return new Response(emptyDataStream, { status: 200 });
     }
 
-    if (mostRecentMessage.role !== 'assistant') {
+    if (mostRecentMessage.sender_type !== 'assistant') {
       return new Response(emptyDataStream, { status: 200 });
     }
 
-    const messageCreatedAt = new Date(mostRecentMessage.createdAt);
+    const messageCreatedAt = new Date(mostRecentMessage.created_at);
 
     if (differenceInSeconds(resumeRequestedAt, messageCreatedAt) > 15) {
       return new Response(emptyDataStream, { status: 200 });

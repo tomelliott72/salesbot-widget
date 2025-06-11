@@ -3,153 +3,78 @@ import {
   pgTable,
   varchar,
   timestamp,
-  json,
   uuid,
   text,
-  primaryKey,
-  foreignKey,
   boolean,
+  jsonb,
+  doublePrecision,
+  integer,
 } from 'drizzle-orm/pg-core';
 
-
-export const chat = pgTable('Chat', {
-  id: uuid('id').primaryKey().notNull().defaultRandom(),
-  createdAt: timestamp('createdAt').notNull(),
-  title: text('title').notNull(),
-
-  visibility: varchar('visibility', { enum: ['public', 'private'] })
-    .notNull()
-    .default('private'),
+// Schema for Langflow's 'chat' table
+export const chat = pgTable('chat', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(), // Corresponds to Langflow's chat.id (PK)
+  user_id: uuid('user_id'), // Nullable, as app might not manage Langflow users directly
+  flow_id: uuid('flow_id').notNull(),
+  name: varchar('name', { length: 255 }).notNull(), // This is the chat title
+  description: varchar('description', { length: 255 }),
+  created_at: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .defaultNow()
+    .notNull(),
+  chat_id: varchar('chat_id', { length: 255 }).notNull().unique(), // Langflow's session identifier, crucial for linking
+  is_public: boolean('is_public').default(false).notNull(),
 });
 
 export type Chat = InferSelectModel<typeof chat>;
 
-// DEPRECATED: The following schema is deprecated and will be removed in the future.
-// Read the migration guide at https://chat-sdk.dev/docs/migration-guides/message-parts
-export const messageDeprecated = pgTable('Message', {
-  id: uuid('id').primaryKey().notNull().defaultRandom(),
-  chatId: uuid('chatId')
-    .notNull()
-    .references(() => chat.id),
-  role: varchar('role').notNull(),
-  content: json('content').notNull(),
-  createdAt: timestamp('createdAt').notNull(),
+// Schema for Langflow's 'message' table
+export const message = pgTable('message', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(), // Corresponds to Langflow's message.id (PK)
+  chat_id: varchar('chat_id', { length: 255 }).notNull(), // Links to chat.chat_id (varchar)
+  // .references(() => chat.chat_id), // Drizzle FK might be tricky if chat_id in chat table isn't explicitly unique/PK in Drizzle's eyes, but it is unique in DB.
+  text: text('text'), // Main message content
+  sender_type: varchar('sender_type', { length: 255 }), // e.g., 'user', 'bot'
+  sender_name: varchar('sender_name', { length: 255 }),
+  files: jsonb('files'), // Assuming files are stored as JSON
+  intermediate_steps: text('intermediate_steps'),
+  timestamp: doublePrecision('timestamp'), // Langflow uses float8, maps to doublePrecision
+  session_id: varchar('session_id', { length: 255 }), // Might be redundant with chat_id
+  is_bot: boolean('is_bot').default(false).notNull(),
+  flow_id: uuid('flow_id').notNull(),
+  version: varchar('version', { length: 255 }),
+  created_at: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .defaultNow()
+    .notNull(),
+  order: integer('order').default(1).notNull(),
+  artifacts: jsonb('artifacts'),
 });
 
-export type MessageDeprecated = InferSelectModel<typeof messageDeprecated>;
+export type Message = InferSelectModel<typeof message>;
 
-export const message = pgTable('Message_v2', {
-  id: uuid('id').primaryKey().notNull().defaultRandom(),
-  chatId: uuid('chatId')
-    .notNull()
-    .references(() => chat.id),
-  role: varchar('role').notNull(),
-  parts: json('parts').notNull(),
-  attachments: json('attachments').notNull(),
-  createdAt: timestamp('createdAt').notNull(),
-});
+// The old 'Message' (messageDeprecated) and 'Message_v2' schemas are no longer needed
+// as we are aligning with Langflow's 'message' table.
 
-export type DBMessage = InferSelectModel<typeof message>;
+// You might have other tables like 'document', 'suggestion', 'stream', 'vote'.
+// These would also need to be reviewed and potentially updated or removed
+// if Langflow's schema handles their equivalent functionality.
 
-// DEPRECATED: The following schema is deprecated and will be removed in the future.
-// Read the migration guide at https://chat-sdk.dev/docs/migration-guides/message-parts
-export const voteDeprecated = pgTable(
-  'Vote',
-  {
-    chatId: uuid('chatId')
-      .notNull()
-      .references(() => chat.id),
-    messageId: uuid('messageId')
-      .notNull()
-      .references(() => messageDeprecated.id),
-    isUpvoted: boolean('isUpvoted').notNull(),
-  },
-  (table) => {
-    return {
-      pk: primaryKey({ columns: [table.chatId, table.messageId] }),
-    };
-  },
-);
+// Example for 'document' if you still need it and it's separate from Langflow:
+// export const document = pgTable('document', {
+//   id: uuid('id').primaryKey().notNull().defaultRandom(),
+//   chatId: uuid('chatId')
+//     .notNull()
+//     .references(() => chat.id), // This would now reference the new chat.id (uuid)
+//   name: text('name').notNull(),
+//   url: text('url').notNull(),
+//   metadata: jsonb('metadata'),
+//   createdAt: timestamp('createdAt', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+// });
+// export type Document = InferSelectModel<typeof document>;
 
-export type VoteDeprecated = InferSelectModel<typeof voteDeprecated>;
-
-export const vote = pgTable(
-  'Vote_v2',
-  {
-    chatId: uuid('chatId')
-      .notNull()
-      .references(() => chat.id),
-    messageId: uuid('messageId')
-      .notNull()
-      .references(() => message.id),
-    isUpvoted: boolean('isUpvoted').notNull(),
-  },
-  (table) => {
-    return {
-      pk: primaryKey({ columns: [table.chatId, table.messageId] }),
-    };
-  },
-);
-
-export type Vote = InferSelectModel<typeof vote>;
-
-export const document = pgTable(
-  'Document',
-  {
-    id: uuid('id').notNull().defaultRandom(),
-    createdAt: timestamp('createdAt').notNull(),
-    title: text('title').notNull(),
-    content: text('content'),
-    kind: varchar('text', { enum: ['text', 'code', 'image', 'sheet'] })
-      .notNull()
-      .default('text'),
-  },
-  (table) => {
-    return {
-      pk: primaryKey({ columns: [table.id, table.createdAt] }),
-    };
-  },
-);
-
-export type Document = InferSelectModel<typeof document>;
-
-export const suggestion = pgTable(
-  'Suggestion',
-  {
-    id: uuid('id').notNull().defaultRandom(),
-    documentId: uuid('documentId').notNull(),
-    documentCreatedAt: timestamp('documentCreatedAt').notNull(),
-    originalText: text('originalText').notNull(),
-    suggestedText: text('suggestedText').notNull(),
-    description: text('description'),
-    isResolved: boolean('isResolved').notNull().default(false),
-    createdAt: timestamp('createdAt').notNull(),
-  },
-  (table) => ({
-    pk: primaryKey({ columns: [table.id] }),
-    documentRef: foreignKey({
-      columns: [table.documentId, table.documentCreatedAt],
-      foreignColumns: [document.id, document.createdAt],
-    }),
-  }),
-);
-
-export type Suggestion = InferSelectModel<typeof suggestion>;
-
-export const stream = pgTable(
-  'Stream',
-  {
-    id: uuid('id').notNull().defaultRandom(),
-    chatId: uuid('chatId').notNull(),
-    createdAt: timestamp('createdAt').notNull(),
-  },
-  (table) => ({
-    pk: primaryKey({ columns: [table.id] }),
-    chatRef: foreignKey({
-      columns: [table.chatId],
-      foreignColumns: [chat.id],
-    }),
-  }),
-);
-
-export type Stream = InferSelectModel<typeof stream>;
+// Similarly for 'suggestion', 'stream', 'vote' - review their necessity and structure.

@@ -1,6 +1,7 @@
 import { generateUUID } from '@/lib/utils';
 import { DataStreamWriter, tool } from 'ai';
 import { z } from 'zod';
+import { LangflowClient } from '@datastax/langflow-client';
 
 import {
   artifactKinds,
@@ -10,6 +11,22 @@ import {
 interface CreateDocumentProps {
   dataStream: DataStreamWriter;
 }
+
+const LANGFLOW_BASE_URL = process.env.LANGFLOW_BASE_URL;
+const LANGFLOW_FLOW_ID = process.env.LANGFLOW_FLOW_ID;
+
+if (!LANGFLOW_BASE_URL || !LANGFLOW_FLOW_ID) {
+  throw new Error(
+    'Langflow base URL or Flow ID is not set in environment variables. Please check your .env.local file.',
+  );
+}
+
+const client = new LangflowClient({
+  baseUrl: LANGFLOW_BASE_URL,
+  // If your Langflow instance requires an API key, add it here:
+  // apiKey: process.env.LANGFLOW_API_KEY,
+});
+const flow = client.flow(LANGFLOW_FLOW_ID);
 
 export const createDocument = ({ dataStream }: CreateDocumentProps) =>
   tool({
