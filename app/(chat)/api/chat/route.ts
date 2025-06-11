@@ -1,20 +1,17 @@
-import {
-  appendClientMessage,
-  createDataStream, // Will still be used for 'data' but not returned yet
-} from 'ai';
+
+// appendClientMessage and createDataStream imports removed for diagnostics
 
 import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
 import {
-  deleteChatById,
-  getChatById,
-  getMessagesByChatId,
-  saveChat,
   saveMessages,
+  getMessagesBySessionId, // Replaced getMessagesByChatId
+  // deleteChatById, getChatById, saveChat were removed as they relied on the non-existent 'chat' table
 } from '@/lib/db/queries';
 import { generateUUID, getTrailingMessageId } from '@/lib/utils';
 import { generateTitleFromUserMessage } from '../../actions';
 import { createDocument } from '@/lib/ai/tools/create-document';
 import { updateDocument } from '@/lib/ai/tools/update-document';
+// import { StreamingTextResponse } from 'ai'; // Explicitly commented out for build diagnosis
 import { requestSuggestions } from '@/lib/ai/tools/request-suggestions';
 import { getWeather } from '@/lib/ai/tools/get-weather';
 import { isProductionEnvironment } from '@/lib/constants';
@@ -27,7 +24,7 @@ import {
   type ResumableStreamContext,
 } from 'resumable-stream';
 import { after } from 'next/server';
-import type { Chat } from '@/lib/db/schema';
+// import type { Chat } from '@/lib/db/schema'; // Chat type removed as schema is gone
 import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
 
@@ -61,6 +58,7 @@ export async function POST(request: Request) {
   try {
     const json = await request.json();
     requestBody = postRequestBodySchema.parse(json);
+    console.log('[API /api/chat POST] Request body received:', JSON.stringify(requestBody, null, 2));
   } catch (_) {
     return new ChatSDKError('bad_request:api').toResponse();
   }
@@ -69,51 +67,25 @@ export async function POST(request: Request) {
     const { id, message, selectedChatModel, selectedVisibilityType } =
       requestBody;
 
-    let chatDetails = await getChatById({ id });
-    let langflowChatId: string;
+    // The 'id' from requestBody is now treated as the session_id.
+    // Logic for getChatById, saveChat, and title generation is removed as 'chat' table doesn't exist.
+    const sessionId = id; // id from requestBody is the session_id
+    let langflowChatId: string = sessionId;
 
-    if (!chatDetails) {
-      const title = await generateTitleFromUserMessage({
-        message,
-      });
-      // Use the incoming UUID as the langflow_chat_id for new chats for now.
-      // And use a placeholder for flow_id.
-      const newChatData = {
-        id: id, // chat.id (UUID)
-        name: title,
-        flow_id: "default_flow", // Placeholder
-        chat_id: id, // chat.chat_id (varchar), using UUID for now
-        is_public: selectedVisibilityType === 'public',
-      };
-      const savedChat = await saveChat(newChatData);
-      // Ensure we use the chat_id from the saved/fetched chat record for subsequent operations
-      // saveChat should return the created chat including its chat_id
-      if (savedChat && savedChat.chat_id) {
-        langflowChatId = savedChat.chat_id;
-        chatDetails = savedChat; // So chatDetails is populated for later use if needed
-      } else {
-        // Fallback or error if saveChat didn't return expected structure or failed silently
-        // For now, assume it worked and chat_id is what we set it to.
-        langflowChatId = newChatData.chat_id;
-        // Potentially re-fetch to be certain: chatDetails = await getChatById({ id });
-      }
-    } else {
-      langflowChatId = chatDetails.chat_id;
-    }
-
-    // Ensure langflowChatId is defined before proceeding
+    // Ensure langflowChatId (sessionId) is defined before proceeding
     if (!langflowChatId) {
-      console.error('Critical: langflowChatId could not be determined.');
+      console.error('Critical: sessionId (langflowChatId) could not be determined from request.');
       return new ChatSDKError('bad_request:api', 'Failed to determine chat session ID.').toResponse();
     }
 
-    const previousMessages = await getMessagesByChatId({ id: langflowChatId });
+    const previousMessages = await getMessagesBySessionId({ sessionId: langflowChatId });
 
-    const messages = appendClientMessage({
+    // const messages = appendClientMessage({ // Commented out for diagnostics
       // @ts-expect-error: todo add type conversion from DBMessage[] to UIMessage[]
-      messages: previousMessages,
-      message,
-    });
+    //   messages: previousMessages,
+    //   message,
+    // });
+    const messages = previousMessages; // Placeholder for diagnostics
 
     const { longitude, latitude, city, country } = geolocation(request);
 
@@ -138,6 +110,8 @@ export async function POST(request: Request) {
       session_id: langflowChatId, // This is chatDetails.chat_id
     };
 
+    console.log('[API /api/chat POST] Calling Langflow URL:', langflowApiUrl);
+    console.log('[API /api/chat POST] Langflow payload:', JSON.stringify(langflowPayload, null, 2));
     const langflowResponse = await fetch(langflowApiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -155,7 +129,16 @@ export async function POST(request: Request) {
       return new ChatSDKError('bad_request:api', 'Langflow response body is null').toResponse();
     }
 
+    console.log('[API /api/chat POST] Langflow response status:', langflowResponse.status, langflowResponse.statusText);
+    if (!langflowResponse.ok) {
+      const errorBody = await langflowResponse.text();
+      console.error('[API /api/chat POST] Langflow error response body:', errorBody);
+      // Potentially return an error response to the client here if Langflow fails
+      return new ChatSDKError('bad_request:api', `Langflow service error: ${langflowResponse.status} - ${errorBody}`).toResponse(); // Changed to valid error code
+    }
     const rawLangflowStream = langflowResponse.body;
+
+
 
     // The rawLangflowStream is the direct ReadableStream from Langflow's response body.
     // We don't need to manually format it to AI SDK's 0:"chunk" format if using streamToResponse correctly.
@@ -181,6 +164,43 @@ export async function POST(request: Request) {
     });
     */
 
+    // Langflow sends a single JSON object, not a stream of text chunks.
+    // We need to parse this JSON and extract the actual message.
+    const langflowJsonText = await langflowResponse.text();
+    console.log('[API /api/chat POST] Langflow full response text:', langflowJsonText);
+
+    try {
+      const langflowData = JSON.parse(langflowJsonText);
+      const messageText = langflowData?.outputs?.[0]?.outputs?.[0]?.results?.message?.text;
+
+      if (typeof messageText === 'string') {
+        // Create a new stream with just the message text for the client
+        const clientStream = new ReadableStream({
+          start(controller) {
+            const streamData = `0:${JSON.stringify(messageText)}\n`;
+            controller.enqueue(new TextEncoder().encode(streamData));
+            controller.close();
+          },
+        });
+        return new Response(clientStream, { // Send the new simple text stream
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        });
+      } else {
+        console.error('[API /api/chat POST] Could not extract messageText from Langflow response:', langflowData);
+        return new Response('Error: Could not extract message from Langflow response.', {
+          status: 500,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        });
+      }
+    } catch (parseError) {
+      console.error('[API /api/chat POST] Failed to parse Langflow JSON response:', parseError, langflowJsonText);
+      return new Response('Error: Failed to parse Langflow response.', {
+        status: 500,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+
+    // Fallback if somehow the above logic doesn't return (should not happen)
     return new Response(rawLangflowStream, {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
@@ -188,6 +208,7 @@ export async function POST(request: Request) {
     });
 
   } catch (error) {
+    console.error('[API /api/chat POST] Error in POST handler:', error);
     if (error instanceof ChatSDKError) {
       return error.toResponse();
     }
@@ -209,17 +230,15 @@ export async function GET(request: Request) {
     return new ChatSDKError('bad_request:api').toResponse();
   }
 
-  let chat: Chat;
+  // let chat: Chat; // Chat type and getChatById removed.
+  // The concept of fetching a 'chat' entity by id is removed.
+  // Stream resumption logic below is mostly disabled and will rely on sessionId (chatId from URL).
+  const sessionId = chatId; // chatId from URL is the sessionId
 
-  try {
-    chat = await getChatById({ id: chatId });
-  } catch {
-    return new ChatSDKError('not_found:chat').toResponse();
+  if (!sessionId) {
+    return new ChatSDKError('bad_request:api', 'Session ID (chatId) is required.').toResponse();
   }
 
-  if (!chat) {
-    return new ChatSDKError('not_found:chat').toResponse();
-  }
 
   // const streamIds = await getStreamIdsByChatId({ chatId }); // getStreamIdsByChatId removed
 
@@ -248,18 +267,18 @@ export async function GET(request: Request) {
    * but the resumable stream has concluded at this point.
    */
   if (!stream) {
-    const messages = await getMessagesByChatId({ id: chatId });
+    const messages = await getMessagesBySessionId({ sessionId: chatId }); // Use sessionId
     const mostRecentMessage = messages.at(-1);
 
     if (!mostRecentMessage) {
       return new Response(emptyDataStream, { status: 200 });
     }
 
-    if (mostRecentMessage.sender_type !== 'assistant') {
+    if (mostRecentMessage.sender !== 'assistant') { // Corrected sender_type to sender
       return new Response(emptyDataStream, { status: 200 });
     }
 
-    const messageCreatedAt = new Date(mostRecentMessage.created_at);
+    const messageCreatedAt = new Date(mostRecentMessage.timestamp); // Corrected created_at to timestamp
 
     if (differenceInSeconds(resumeRequestedAt, messageCreatedAt) > 15) {
       return new Response(emptyDataStream, { status: 200 });
@@ -288,14 +307,12 @@ export async function DELETE(request: Request) {
     return new ChatSDKError('bad_request:api').toResponse();
   }
 
-  const chat = await getChatById({ id });
+  // const chat = await getChatById({ id }); // getChatById removed
+  // const deletedChat = await deleteChatById({ id }); // deleteChatById removed
 
-  // Optional: Add a check here if you want to prevent deletion of non-existent chats
-  // if (!chat) {
-  //   return new ChatSDKError('not_found:chat').toResponse();
-  // }
-
-  const deletedChat = await deleteChatById({ id });
-
-  return Response.json(deletedChat, { status: 200 });
+  // Deletion of all messages for a session (id from URL is sessionId) is not yet implemented.
+  // Returning a success response as a no-op for now to fix build.
+  // Proper implementation would use something like deleteMessagesBySessionId(sessionId).
+  console.log(`DELETE request for session ${id} - no operation performed.`);
+  return Response.json({ message: `Chat deletion for session ${id} not fully implemented. No messages deleted.` }, { status: 200 });
 }

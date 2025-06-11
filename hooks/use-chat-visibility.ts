@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { unstable_serialize } from 'swr/infinite';
-import { updateChatVisibility } from '@/app/(chat)/actions';
+// import { updateChatVisibility } from '@/app/(chat)/actions'; // Removed as updateChatVisibility is no longer exported
 import {
   getChatHistoryPaginationKey,
   type ChatHistory,
@@ -39,10 +39,10 @@ export function useChatVisibility({
     setLocalVisibility(updatedVisibilityType);
     mutate(unstable_serialize(getChatHistoryPaginationKey));
 
-    updateChatVisibility({
-      chatId: chatId,
-      visibility: updatedVisibilityType,
-    });
+    // updateChatVisibility({
+    //   chatId: chatId,
+    //   visibility: updatedVisibilityType,
+    // }); // Commented out as the action is removed; visibility changes will be local only for now.
   };
 
   return { visibilityType, setVisibilityType };

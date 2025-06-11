@@ -22,28 +22,28 @@ import {
   SidebarMenu,
   useSidebar,
 } from '@/components/ui/sidebar';
-import type { Chat } from '@/lib/db/schema';
+// import type { Chat } from '@/lib/db/schema'; // Chat type removed as it's based on the old schema and history is currently disabled
 import { fetcher } from '@/lib/utils';
 import { ChatItem } from './sidebar-history-item';
 import useSWRInfinite from 'swr/infinite';
 import { LoaderIcon } from './icons';
 
 type GroupedChats = {
-  today: Chat[];
-  yesterday: Chat[];
-  lastWeek: Chat[];
-  lastMonth: Chat[];
-  older: Chat[];
+  today: any[]; // Using any as Chat type is removed
+  yesterday: any[]; // Using any as Chat type is removed
+  lastWeek: any[]; // Using any as Chat type is removed
+  lastMonth: any[]; // Using any as Chat type is removed
+  older: any[]; // Using any as Chat type is removed
 };
 
 export interface ChatHistory {
-  chats: Array<Chat>;
+  chats: Array<any>; // Using any as Chat type is removed and history is currently disabled
   hasMore: boolean;
 }
 
 const PAGE_SIZE = 20;
 
-const groupChatsByDate = (chats: Chat[]): GroupedChats => {
+const groupChatsByDate = (chats: any[]): GroupedChats => { // Using any as Chat type is removed
   const now = new Date();
   const oneWeekAgo = subWeeks(now, 1);
   const oneMonthAgo = subMonths(now, 1);

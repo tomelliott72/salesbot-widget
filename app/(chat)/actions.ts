@@ -3,9 +3,8 @@
 import { generateText, type UIMessage } from 'ai';
 import { cookies } from 'next/headers';
 import {
-  deleteMessagesByChatIdAfterTimestamp,
+  deleteMessagesBySessionIdAfterTimestamp,
   getMessageById,
-  updateChatVisiblityById,
 } from '@/lib/db/queries';
 import type { VisibilityType } from '@/components/visibility-selector';
 import { myProvider } from '@/lib/ai/providers';
@@ -34,20 +33,20 @@ export async function generateTitleFromUserMessage({
 }
 
 export async function deleteTrailingMessages({ id }: { id: string }) {
-  const [message] = await getMessageById({ id });
+  // id here is the UUID of a specific message
+  const [messageDetails] = await getMessageById({ id });
 
-  await deleteMessagesByChatIdAfterTimestamp({
-    chatId: message.chatId,
-    timestamp: message.createdAt,
+  if (!messageDetails || !messageDetails.session_id || !messageDetails.timestamp) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to get message details or session_id/timestamp for deletion.');
+    return;
+  }
+
+  await deleteMessagesBySessionIdAfterTimestamp({
+    sessionId: messageDetails.session_id, // Use session_id from the message
+    timestampValue: messageDetails.timestamp, // Use timestamp from the message
   });
 }
 
-export async function updateChatVisibility({
-  chatId,
-  visibility,
-}: {
-  chatId: string;
-  visibility: VisibilityType;
-}) {
-  await updateChatVisiblityById({ chatId, visibility });
-}
+// The function updateChatVisibility has been removed because it relied on updateChatVisiblityById,
+// which was removed due to the 'chat' table no longer existing.

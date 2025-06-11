@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getChats } from '@/lib/db/queries';
+// import { getChats } from '@/lib/db/queries'; // Removed as getChats is no longer available
 import { ChatSDKError } from '@/lib/errors';
 
 export async function GET(request: NextRequest) {
@@ -16,11 +16,12 @@ export async function GET(request: NextRequest) {
     ).toResponse();
   }
 
-  const chats = await getChats({
-    limit,
-    startingAfter,
-    endingBefore,
-  });
+  // const chats = await getChats({
+  //   limit,
+  //   startingAfter,
+  //   endingBefore,
+  // }); // Commented out as getChats is removed.
 
-  return Response.json(chats);
+  // Return empty chat history structure as functionality needs reimplementation.
+  return Response.json({ chats: [], hasMore: false });
 }

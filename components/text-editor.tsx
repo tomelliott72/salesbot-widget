@@ -6,7 +6,7 @@ import { EditorState } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import React, { memo, useEffect, useRef } from 'react';
 
-import type { Suggestion } from '@/lib/db/schema';
+// Suggestion type import removed as it's no longer in lib/db/schema.ts
 import {
   documentSchema,
   handleTransaction,
@@ -29,7 +29,7 @@ type EditorProps = {
   status: 'streaming' | 'idle';
   isCurrentVersion: boolean;
   currentVersionIndex: number;
-  suggestions: Array<Suggestion>;
+  suggestions?: Array<any>; // Made suggestions optional, using Array<any> as Suggestion type is removed
 };
 
 function PureEditor({
@@ -129,7 +129,7 @@ function PureEditor({
     if (editorRef.current?.state.doc && content) {
       const projectedSuggestions = projectWithPositions(
         editorRef.current.state.doc,
-        suggestions,
+        suggestions || [], // Pass empty array if suggestions is undefined
       ).filter(
         (suggestion) => suggestion.selectionStart && suggestion.selectionEnd,
       );
