@@ -11,48 +11,48 @@ import {
   integer,
 } from 'drizzle-orm/pg-core';
 
-// Schema for Langflow's 'chat' table
-export const chat = pgTable('chat', {
-  id: uuid('id').primaryKey().notNull().defaultRandom(), // Corresponds to Langflow's chat.id (PK)
-  user_id: uuid('user_id'), // Nullable, as app might not manage Langflow users directly
-  flow_id: uuid('flow_id').notNull(),
-  name: varchar('name', { length: 255 }).notNull(), // This is the chat title
-  description: varchar('description', { length: 255 }),
-  created_at: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-    .defaultNow()
-    .notNull(),
-  chat_id: varchar('chat_id', { length: 255 }).notNull().unique(), // Langflow's session identifier, crucial for linking
-  is_public: boolean('is_public').default(false).notNull(),
-});
+// The 'chat' table definition has been removed as it does not exist in the Supabase database.
 
-export type Chat = InferSelectModel<typeof chat>;
-
-// Schema for Langflow's 'message' table
+// Schema for the 'message' table, aligned with Supabase structure
 export const message = pgTable('message', {
-  id: uuid('id').primaryKey().notNull().defaultRandom(), // Corresponds to Langflow's message.id (PK)
-  chat_id: varchar('chat_id', { length: 255 }).notNull(), // Links to chat.chat_id (varchar)
-  // .references(() => chat.chat_id), // Drizzle FK might be tricky if chat_id in chat table isn't explicitly unique/PK in Drizzle's eyes, but it is unique in DB.
-  text: text('text'), // Main message content
-  sender_type: varchar('sender_type', { length: 255 }), // e.g., 'user', 'bot'
-  sender_name: varchar('sender_name', { length: 255 }),
-  files: jsonb('files'), // Assuming files are stored as JSON
-  intermediate_steps: text('intermediate_steps'),
-  timestamp: doublePrecision('timestamp'), // Langflow uses float8, maps to doublePrecision
-  session_id: varchar('session_id', { length: 255 }), // Might be redundant with chat_id
-  is_bot: boolean('is_bot').default(false).notNull(),
-  flow_id: uuid('flow_id').notNull(),
-  version: varchar('version', { length: 255 }),
-  created_at: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-    .defaultNow()
-    .notNull(),
-  order: integer('order').default(1).notNull(),
-  artifacts: jsonb('artifacts'),
+  // From Supabase CSV: id,uuid,NO,null
+  id: uuid('id').primaryKey().notNull(),
+
+  // From Supabase CSV: timestamp,timestamp without time zone,NO,null
+  timestamp: timestamp('timestamp', { withTimezone: false, mode: 'date' }).notNull(),
+
+  // From Supabase CSV: sender,character varying,NO,null
+  // Assuming a reasonable default length for varchar if not specified, or omit length.
+  sender: varchar('sender').notNull(),
+
+  // From Supabase CSV: sender_name,character varying,NO,null
+  sender_name: varchar('sender_name').notNull(),
+
+  // From Supabase CSV: session_id,character varying,NO,null
+  session_id: varchar('session_id').notNull(),
+
+  // From Supabase CSV: text,text,YES,null
+  text: text('text'),
+
+  // From Supabase CSV: flow_id,uuid,YES,null
+  flow_id: uuid('flow_id'),
+
+  // From Supabase CSV: files,json,YES,null
+  // Using jsonb as it's generally preferred in PostgreSQL.
+  // If Supabase column is strictly 'json', use json('files').
+  files: jsonb('files'),
+
+  // From Supabase CSV: error,boolean,NO,false
+  error: boolean('error').default(false).notNull(),
+
+  // From Supabase CSV: edit,boolean,NO,false
+  edit: boolean('edit').default(false).notNull(),
+
+  // From Supabase CSV: properties,json,YES,null
+  properties: jsonb('properties'),
+
+  // From Supabase CSV: category,text,YES,null
+  category: text('category'),
 });
 
 export type Message = InferSelectModel<typeof message>;

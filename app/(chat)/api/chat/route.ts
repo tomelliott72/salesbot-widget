@@ -1,9 +1,6 @@
 import {
   appendClientMessage,
-  appendResponseMessages,
-  createDataStream,
-  smoothStream,
-  streamText,
+  createDataStream, // Will still be used for 'data' but not returned yet
 } from 'ai';
 
 import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
@@ -107,7 +104,7 @@ export async function POST(request: Request) {
     // Ensure langflowChatId is defined before proceeding
     if (!langflowChatId) {
       console.error('Critical: langflowChatId could not be determined.');
-      return new ChatSDKError('unknown', 'Failed to determine chat session ID.').toResponse();
+      return new ChatSDKError('bad_request:api', 'Failed to determine chat session ID.').toResponse();
     }
 
     const previousMessages = await getMessagesByChatId({ id: langflowChatId });
@@ -127,120 +124,69 @@ export async function POST(request: Request) {
       country,
     };
 
-    await saveMessages({
-      messages: [
-        {
-          chat_id: langflowChatId, // Corrected: use langflowChatId (varchar)
-          id: message.id,
-          flow_id: "default_flow", // Added placeholder
-          role: 'user', // This will be mapped to sender_type by saveMessages if needed, or schema handles it
-          parts: message.parts,
-          attachments: message.experimental_attachments ?? [],
-          // createdAt is handled by DB schema default
-        },
-      ],
+    // User message will be saved by Langflow
+    const userMessageText = message.parts
+      .filter(part => part.type === 'text')
+      .map(part => part.text)
+      .join('\n');
+
+    const langflowApiUrl = 'https://sailsbot-dev.up.railway.app/api/v1/run/ff5c9c02-cb4a-4561-b35d-90fce606ee1f'; // TODO: Make this configurable. Consider if flow_id from chatDetails should be part of the URL.
+    const langflowPayload = {
+      input_value: userMessageText,
+      output_type: "chat",
+      input_type: "chat",
+      session_id: langflowChatId, // This is chatDetails.chat_id
+    };
+
+    const langflowResponse = await fetch(langflowApiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(langflowPayload),
     });
 
-    const streamId = generateUUID();
-    // await createStreamId({ streamId, chatId: id }); // createStreamId removed
-
-    const stream = createDataStream({
-      execute: (dataStream) => {
-        const result = streamText({
-          model: myProvider.languageModel(selectedChatModel),
-          system: systemPrompt({ selectedChatModel, requestHints }),
-          messages,
-          maxSteps: 5,
-          experimental_activeTools:
-            selectedChatModel === 'chat-model-reasoning'
-              ? []
-              : [
-                  'getWeather',
-                  'createDocument',
-                  'updateDocument',
-                  'requestSuggestions',
-                ],
-          experimental_transform: smoothStream({ chunking: 'word' }),
-          experimental_generateMessageId: generateUUID,
-          tools: {
-            createDocument: createDocument({
-              dataStream,
-            }),
-            updateDocument: updateDocument({
-              dataStream,
-            }),
-            requestSuggestions: requestSuggestions({
-              dataStream,
-            }),
-            getWeather: getWeather,
-          },
-          onFinish: async ({ response }) => {
-            try {
-              const assistantId = getTrailingMessageId({
-                messages: response.messages.filter(
-                  (message) => message.role === 'assistant',
-                ),
-              });
-
-              const assistantMessage = response.messages.find(
-                (message) => message.id === assistantId,
-              );
-
-              if (!assistantMessage) {
-                return;
-              }
-
-              const messageParts =
-                typeof assistantMessage.content === 'string'
-                  ? [{ type: 'text', text: assistantMessage.content }]
-                  : assistantMessage.content;
-
-              await saveMessages({
-                messages: [
-                  {
-                    chat_id: langflowChatId, // Corrected: use langflowChatId (varchar)
-                    id: assistantMessage.id,
-                    flow_id: "default_flow", // Added placeholder
-                    role: 'assistant', // This will be mapped to sender_type by saveMessages if needed, or schema handles it
-                    parts: messageParts.filter(
-                      (part): part is { type: 'text'; text: string } =>
-                        part.type === 'text',
-                    ),
-                    attachments: [],
-                    // createdAt is handled by DB schema default
-                  },
-                ],
-              });
-            } catch (_) {
-              console.error('Failed to save chat');
-            }
-          },
-          experimental_telemetry: {
-            isEnabled: isProductionEnvironment,
-            functionId: 'stream-text',
-          },
-        });
-
-        result.consumeStream();
-
-        result.mergeIntoDataStream(dataStream, {
-          sendReasoning: true,
-        });
-      },
-      onError: () => {
-        return 'Oops, an error occurred!';
-      },
-    });
-
-    const streamContext = getStreamContext();
-
-    if (streamContext) {
-      return new Response(
-        await streamContext.resumableStream(streamId, () => stream),
-      );
-    } else {
-      return new Response(stream);
+    if (!langflowResponse.ok) {
+      const errorText = await langflowResponse.text();
+      console.error(`Langflow API error: ${langflowResponse.status} ${errorText}`);
+      return new ChatSDKError('bad_request:api', `Langflow API Error: ${langflowResponse.status} - ${errorText}`).toResponse();
     }
+
+    if (!langflowResponse.body) {
+      console.error('Langflow response body is null');
+      return new ChatSDKError('bad_request:api', 'Langflow response body is null').toResponse();
+    }
+
+    const rawLangflowStream = langflowResponse.body;
+
+    // The rawLangflowStream is the direct ReadableStream from Langflow's response body.
+    // We don't need to manually format it to AI SDK's 0:"chunk" format if using streamToResponse correctly.
+
+    // For now, to simplify and test basic streaming, we'll return a direct Response.
+    // The DataStream 'data' creation is commented out to isolate the writer.close() lint error.
+    // We will revisit integrating it once basic text streaming from Langflow is confirmed.
+    /*
+    const _data = createDataStream({
+      execute: async (writer) => {
+        try {
+          // Auxiliary data would be appended here if needed.
+        } catch (e) {
+          console.error("Error in data stream execute:", e);
+        } finally {
+          // writer.close(); // Commented out due to persistent lint error
+        }
+      },
+      onError: (error) => {
+        console.error("Error in createDataStream's onError callback:", error);
+        return 'An error occurred while processing auxiliary data.';
+      }
+    });
+    */
+
+    return new Response(rawLangflowStream, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+      },
+    });
+
   } catch (error) {
     if (error instanceof ChatSDKError) {
       return error.toResponse();

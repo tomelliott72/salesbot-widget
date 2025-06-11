@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 
 
 import { Chat } from '@/components/chat';
-import { getChatById, getMessagesByChatId } from '@/lib/db/queries';
+import { getMessagesBySessionId } from '@/lib/db/queries';
 import { DataStreamHandler } from '@/components/data-stream-handler';
 import { DEFAULT_CHAT_MODEL } from '@/lib/ai/models';
 import type { DBMessage } from '@/lib/db/schema';
@@ -11,30 +11,58 @@ import type { Attachment, UIMessage } from 'ai';
 
 export default async function Page(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const { id } = params;
-  const chat = await getChatById({ id });
+  const { id: sessionId } = params; // Renaming id to sessionId for clarity
 
-  if (!chat) {
-    notFound();
-  }
+  // The chat object is no longer fetched as the 'chat' table does not exist.
+  // params.id (now sessionId) is the identifier for the chat session.
 
-
-
-  const messagesFromDb = await getMessagesByChatId({
-    id,
+  const messagesFromDb = await getMessagesBySessionId({
+    sessionId,
   });
 
-  function convertToUIMessages(messages: Array<DBMessage>): Array<UIMessage> {
-    return messages.map((message) => ({
-      id: message.id,
-      parts: message.parts as UIMessage['parts'],
-      role: message.role as UIMessage['role'],
-      // Note: content will soon be deprecated in @ai-sdk/react
-      content: '',
-      createdAt: message.createdAt,
-      experimental_attachments:
-        (message.attachments as Array<Attachment>) ?? [],
-    }));
+  function convertToUIMessages(dbMessages: Array<DBMessage>): Array<UIMessage> {
+    return dbMessages.map((dbMsg) => {
+      // Determine role based on sender_name or sender
+      let role: UIMessage['role'] = 'user'; // Default to user
+      if (dbMsg.sender_name?.toLowerCase() === 'bot' || dbMsg.sender?.toLowerCase() === 'bot') {
+        role = 'assistant';
+      } else if (dbMsg.sender_name?.toLowerCase() === 'user' || dbMsg.sender?.toLowerCase() === 'user') {
+        role = 'user';
+      }
+      // Langflow 'files' are likely URLs or structured data, map to attachments if possible
+      // This is a basic attempt, might need refinement based on actual 'files' content
+      let attachments: Attachment[] | undefined = undefined;
+      if (dbMsg.files && typeof dbMsg.files === 'string') { // Assuming files might be a JSON string of URLs
+        try {
+          const parsedFiles = JSON.parse(dbMsg.files as string);
+          if (Array.isArray(parsedFiles)) {
+            attachments = parsedFiles.map((fileUrl: any) => ({
+              contentType: 'application/octet-stream', // Or determine from URL/type
+              name: typeof fileUrl === 'string' ? fileUrl.substring(fileUrl.lastIndexOf('/') + 1) : 'file',
+              url: typeof fileUrl === 'string' ? fileUrl : '',
+            }));
+          }
+        } catch (e) {
+          // console.warn('Failed to parse message.files JSON:', e);
+        }
+      } else if (dbMsg.files && Array.isArray(dbMsg.files)) { // If files is already an array of objects
+         attachments = (dbMsg.files as any[]).map(fileObj => ({
+            contentType: fileObj.contentType || 'application/octet-stream',
+            name: fileObj.name || 'file',
+            url: fileObj.url || '',
+         }));
+      }
+
+      return {
+        id: dbMsg.id,
+        content: dbMsg.text ?? '', // Add content property
+        parts: [{ type: 'text', text: dbMsg.text ?? '' }],
+        role: role,
+        createdAt: dbMsg.timestamp, // timestamp from new schema
+        experimental_attachments: attachments,
+        // data: dbMsg.properties, // Optionally map 'properties' to 'data' if needed
+      };
+    });
   }
 
   const cookieStore = await cookies();
@@ -44,14 +72,14 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
     return (
       <>
         <Chat
-          id={chat.id}
+          id={sessionId} // Use sessionId (formerly params.id) as the chat identifier
           initialMessages={convertToUIMessages(messagesFromDb)}
           initialChatModel={DEFAULT_CHAT_MODEL}
-          initialVisibilityType={chat.visibility}
+          initialVisibilityType={'private'} // Defaulting as chat.is_public is no longer available
           isReadonly={false}
           autoResume={true}
         />
-        <DataStreamHandler id={id} />
+        <DataStreamHandler id={sessionId} />
       </>
     );
   }
@@ -61,14 +89,14 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
   return (
     <>
       <Chat
-        id={chat.id}
+        id={sessionId} // Use sessionId (formerly params.id) as the chat identifier
         initialMessages={convertToUIMessages(messagesFromDb)}
         initialChatModel={chatModelFromCookie.value}
-        initialVisibilityType={chat.visibility}
+        initialVisibilityType={'private'} // Defaulting as chat.is_public is no longer available
         isReadonly={false}
         autoResume={true}
       />
-      <DataStreamHandler id={id} />
+      <DataStreamHandler id={sessionId} />
     </>
   );
 }

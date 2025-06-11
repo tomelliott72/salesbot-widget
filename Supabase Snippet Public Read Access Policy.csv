@@ -1,0 +1,14 @@
+column_name,data_type,is_nullable,column_default,character_maximum_length,numeric_precision,numeric_scale
+timestamp,timestamp without time zone,NO,null,null,null,null
+sender,character varying,NO,null,null,null,null
+sender_name,character varying,NO,null,null,null,null
+session_id,character varying,NO,null,null,null,null
+text,text,YES,null,null,null,null
+id,uuid,NO,null,null,null,null
+flow_id,uuid,YES,null,null,null,null
+files,json,YES,null,null,null,null
+error,boolean,NO,false,null,null,null
+edit,boolean,NO,false,null,null,null
+properties,json,YES,null,null,null,null
+category,text,YES,null,null,null,null
+content_blocks,json,YES,null,null,null,null
