@@ -1,0 +1,74 @@
+{"session_id":"40c9e6e6-ed59-4007-8525-e522defe9abe",
+"outputs":[
+    {"inputs":{
+        "input_value":"hey"},
+        "outputs":[{
+            "results":{
+                "message":{
+                "text_key":"text",
+                "data":{
+                    "timestamp":"2025-06-12T05:07:35+00:00",
+                    "sender":"Machine",
+                    "sender_name":"AI",
+                    "session_id":"817bedfc-1bbb-4644-90af-80241a8121d5",
+                    "text":"Hello! How can I assist you today?",
+                    "files":[],
+                    "error":false,
+                    "edit":false,
+                    "properties":{
+                        "text_color":"",
+                        "background_color":"",
+                        "edited":false,
+                        "source":{
+                            "id":"TextInput-eN5H0",
+                            "display_name":"SessionID",
+                            "source":"SessionID"},
+                            "icon":"type",
+                            "allow_markdown":false,
+                            "positive_feedback":null,
+                            "state":"complete",
+                            "targets":[]},
+                            "category":"message",
+                            "content_blocks":[],
+                            "id":"f2eff01c-7da6-4b39-bd40-aee4fb697eb2",
+                            "flow_id":"ff5c9c02-cb4a-4561-b35d-90fce606ee1f"},
+                            "default_value":"",
+                            "text":"Hello! How can I assist you today?",
+                            "sender":"Machine",
+                            "sender_name":"AI",
+                            "files":[],
+                            "session_id":"817bedfc-1bbb-4644-90af-80241a8121d5",
+                            "timestamp":"2025-06-12T05:07:35+00:00",
+                            "flow_id":"ff5c9c02-cb4a-4561-b35d-90fce606ee1f",
+                            "error":false,
+                            "edit":false,
+                            "properties":{
+                                "text_color":"",
+                                "background_color":"",
+                                "edited":false,
+                                "source":{
+                                    "id":"TextInput-eN5H0",
+                                    "display_name":"SessionID",
+                                    "source":"SessionID"
+                                    },
+                                    "icon":"type",
+                                    "allow_markdown":false,
+                                    "positive_feedback":null,
+                                    "state":"complete",
+                                    "targets":[]},
+                                    "category":"message",
+                                    "content_blocks":[]
+                                    }},"artifacts":{
+                                        "message":"Hello! How can I assist you today?",
+                                        "sender":"Machine",
+                                        "sender_name":"AI",
+                                        "files":[],
+                                        "type":"object"},
+                                        "outputs":{
+                                            "message":{
+                                                "message":"Hello! How can I assist you today?",
+                                                "type":"text"}},
+                                                "logs":{
+                                                    "message":[]},
+                                                    "messages":[{
+                                                        "message":"Hello! How can I assist you today?","sender":"Machine","sender_name":"AI","session_id":"817bedfc-1bbb-4644-90af-80241a8121d5","stream_url":null,"component_id":"ChatOutput-iigh0","files":[],"type":"text"}],"timedelta":null,"duration":null,"component_display_name":"Chat Output","component_id":"ChatOutput-iigh0","used_frozen_result":false}]}]}{"session_id":"40c9e6e6-ed59-4007-8525-e522defe9abe","outputs":[{"inputs":{"input_value":"hey"},"outputs":[{"results":{"message":{"text_key":"text","data":{"timestamp":"2025-06-12T05:07:35+00:00","sender":"Machine","sender_name":"AI","session_id":"817bedfc-1bbb-4644-90af-80241a8121d5","text":"Hello! How can I assist you today?","files":[],"error":false,"edit":false,"properties":{"text_color":"","background_color":"","edited":false,"source":{"id":"TextInput-eN5H0","display_name":"SessionID","source":"SessionID"},"icon":"type","allow_markdown":false,"positive_feedback":null,"state":"complete","targets":[]},"category":"message","content_blocks":[],"id":"f2eff01c-7da6-4b39-bd40-aee4fb697eb2","flow_id":"ff5c9c02-cb4a-4561-b35d-90fce606ee1f"},"default_value":"","text":"Hello! How can I assist you today?","sender":"Machine","sender_name":"AI","files":[],"session_id":"817bedfc-1bbb-4644-90af-80241a8121d5","timestamp":"2025-06-12T05:07:35+00:00","flow_id":"ff5c9c02-cb4a-4561-b35d-90fce606ee1f","error":false,"edit":false,"properties":{"text_color":"","background_color":"","edited":false,"source":{"id":"TextInput-eN5H0","display_name":"SessionID","source":"SessionID"},"icon":"type","allow_markdown":false,"positive_feedback":null,"state":"complete","targets":[]},"category":"message","content_blocks":[]}},"artifacts":{"message":"Hello! How can I assist you today?","sender":"Machine","sender_name":"AI","files":[],"type":"object"},"outputs":{"message":{"message":"Hello! How can I assist you today?","type":"text"}},"logs":{"message":[]},"messages":[{"message":"Hello! How can I assist you today?","sender":"Machine","sender_name":"AI","session_id":"817bedfc-1bbb-4644-90af-80241a8121d5","stream_url":null,"component_id":"ChatOutput-iigh0","files":[],"type":"text"}],"timedelta":null,"duration":null,"component_display_name":"Chat Output","component_id":"ChatOutput-iigh0","used_frozen_result":false}]}]}

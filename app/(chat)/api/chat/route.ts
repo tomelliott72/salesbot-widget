@@ -27,8 +27,75 @@ import { after } from 'next/server';
 // import type { Chat } from '@/lib/db/schema'; // Chat type removed as schema is gone
 import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
+import { LangflowClient } from '@datastax/langflow-client';
 
 export const maxDuration = 60;
+
+// Type definitions for Langflow 'end' event data structure
+interface LangflowEndEventMessageDetail {
+  message?: string; // The actual text message
+  type?: string;
+}
+
+interface LangflowEndEventFinalOutput {
+  message?: LangflowEndEventMessageDetail;
+}
+
+interface LangflowEndEventInnerOutput {
+  results?: any; // Keeping these less specific for brevity
+  artifacts?: any;
+  outputs?: LangflowEndEventFinalOutput; // This contains the message we need
+  logs?: any;
+  messages?: any[];
+}
+
+interface LangflowEndEventOuterOutput {
+  inputs?: any;
+  outputs?: LangflowEndEventInnerOutput[];
+}
+
+interface LangflowEndEventResult {
+  session_id?: string;
+  outputs?: LangflowEndEventOuterOutput[];
+}
+
+interface LangflowEndEventData {
+  result?: LangflowEndEventResult;
+}
+
+// Type definition for Langflow 'add_message' event data structure
+interface LangflowAddMessageEventData {
+  timestamp?: string;
+  sender?: string; // "User" or "Machine"
+  sender_name?: string; // "User" or "AI"
+  session_id?: string;
+  text?: string; // The message content
+  // other properties can be added if needed e.g., files, error, category etc.
+}
+
+// Initialize Langflow Client using environment variables
+const LANGFLOW_BASE_URL = process.env.LANGFLOW_BASE_URL;
+const LANGFLOW_FLOW_ID = process.env.LANGFLOW_FLOW_ID;
+// const LANGFLOW_API_KEY = process.env.LANGFLOW_API_KEY; // Optional: uncomment if you use an API key
+
+if (!LANGFLOW_BASE_URL) {
+  const errorMsg = 'CRITICAL ERROR: LANGFLOW_BASE_URL environment variable is not set. Please ensure it is defined in your .env.local or server environment.';
+  console.error(errorMsg);
+  throw new Error(errorMsg);
+}
+if (!LANGFLOW_FLOW_ID) {
+  const errorMsg = 'CRITICAL ERROR: LANGFLOW_FLOW_ID environment variable is not set. Please ensure it is defined in your .env.local or server environment.';
+  console.error(errorMsg);
+  throw new Error(errorMsg);
+}
+console.log(`[Langflow Client Init] LANGFLOW_BASE_URL: ${LANGFLOW_BASE_URL}`);
+console.log(`[Langflow Client Init] LANGFLOW_FLOW_ID: ${LANGFLOW_FLOW_ID}`);
+
+const client = new LangflowClient({
+  baseUrl: LANGFLOW_BASE_URL,
+  // apiKey: LANGFLOW_API_KEY, // Optional: uncomment if you use an API key
+});
+
 
 let globalStreamContext: ResumableStreamContext | null = null;
 
@@ -102,110 +169,91 @@ export async function POST(request: Request) {
       .map(part => part.text)
       .join('\n');
 
-    const langflowApiUrl = 'https://sailsbot-dev.up.railway.app/api/v1/run/ff5c9c02-cb4a-4561-b35d-90fce606ee1f'; // TODO: Make this configurable. Consider if flow_id from chatDetails should be part of the URL.
-    const langflowPayload = {
-      input_value: userMessageText,
-      output_type: "chat",
-      input_type: "chat",
-      session_id: langflowChatId, // This is chatDetails.chat_id
-    };
-
-    console.log('[API /api/chat POST] Calling Langflow URL:', langflowApiUrl);
-    console.log('[API /api/chat POST] Langflow payload:', JSON.stringify(langflowPayload, null, 2));
-    const langflowResponse = await fetch(langflowApiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(langflowPayload),
-    });
-
-    if (!langflowResponse.ok) {
-      const errorText = await langflowResponse.text();
-      console.error(`Langflow API error: ${langflowResponse.status} ${errorText}`);
-      return new ChatSDKError('bad_request:api', `Langflow API Error: ${langflowResponse.status} - ${errorText}`).toResponse();
+    if (!userMessageText) {
+      console.error('[API /api/chat POST] User message text is empty after filtering parts.');
+      return new ChatSDKError('bad_request:api', 'Empty message received.').toResponse();
     }
 
-    if (!langflowResponse.body) {
-      console.error('Langflow response body is null');
-      return new ChatSDKError('bad_request:api', 'Langflow response body is null').toResponse();
-    }
-
-    console.log('[API /api/chat POST] Langflow response status:', langflowResponse.status, langflowResponse.statusText);
-    if (!langflowResponse.ok) {
-      const errorBody = await langflowResponse.text();
-      console.error('[API /api/chat POST] Langflow error response body:', errorBody);
-      // Potentially return an error response to the client here if Langflow fails
-      return new ChatSDKError('bad_request:api', `Langflow service error: ${langflowResponse.status} - ${errorBody}`).toResponse(); // Changed to valid error code
-    }
-    const rawLangflowStream = langflowResponse.body;
-
-
-
-    // The rawLangflowStream is the direct ReadableStream from Langflow's response body.
-    // We don't need to manually format it to AI SDK's 0:"chunk" format if using streamToResponse correctly.
-
-    // For now, to simplify and test basic streaming, we'll return a direct Response.
-    // The DataStream 'data' creation is commented out to isolate the writer.close() lint error.
-    // We will revisit integrating it once basic text streaming from Langflow is confirmed.
-    /*
-    const _data = createDataStream({
-      execute: async (writer) => {
-        try {
-          // Auxiliary data would be appended here if needed.
-        } catch (e) {
-          console.error("Error in data stream execute:", e);
-        } finally {
-          // writer.close(); // Commented out due to persistent lint error
-        }
-      },
-      onError: (error) => {
-        console.error("Error in createDataStream's onError callback:", error);
-        return 'An error occurred while processing auxiliary data.';
-      }
-    });
-    */
-
-    // Langflow sends a single JSON object, not a stream of text chunks.
-    // We need to parse this JSON and extract the actual message.
-    const langflowJsonText = await langflowResponse.text();
-    console.log('[API /api/chat POST] Langflow full response text:', langflowJsonText);
+    console.log(`[API /api/chat POST] Attempting to stream from Langflow. Flow ID: ${LANGFLOW_FLOW_ID}, Session ID: ${langflowChatId}, Input: "${userMessageText.substring(0, 100)}..."`);
 
     try {
-      const langflowData = JSON.parse(langflowJsonText);
-      const messageText = langflowData?.outputs?.[0]?.outputs?.[0]?.results?.message?.text;
+      const langflowEventStream = await client
+        .flow(LANGFLOW_FLOW_ID!) // LANGFLOW_FLOW_ID is checked at module load to be non-null
+        .stream(userMessageText, { session_id: langflowChatId });
 
-      if (typeof messageText === 'string') {
-        // Create a new stream with just the message text for the client
-        const clientStream = new ReadableStream({
-          start(controller) {
-            const streamData = `0:${JSON.stringify(messageText)}\n`;
-            controller.enqueue(new TextEncoder().encode(streamData));
+      console.log('[API /api/chat POST] Successfully initiated Langflow stream object.');
+
+      const readableStream = new ReadableStream({
+        async start(controller) {
+          const textEncoder = new TextEncoder();
+          const reader = langflowEventStream.getReader();
+          console.log('[API /api/chat POST] ReadableStream started for Langflow events. Reader obtained.');
+          try {
+            while (true) {
+              // console.log('[API /api/chat POST] Calling reader.read()...'); // Very verbose
+              const { done, value: event } = await reader.read();
+              // console.log(`[API /api/chat POST] reader.read() returned: done=${done}`, event ? `event type=${event.event}`: ''); // Very verbose
+
+              if (done) {
+                console.log('[API /api/chat POST] Langflow stream processing finished (reader indicated done).');
+                break;
+              }
+
+              // console.log('[API /api/chat POST] Raw Langflow event:', JSON.stringify(event)); // Very verbose, log if other logs aren't enough
+
+              if (event.event === 'token' && event.data && typeof event.data.chunk === 'string') {
+                // console.log('[API /api/chat POST] Received token chunk:', event.data.chunk); // Verbose, uncomment if needed for char-by-char debugging
+                controller.enqueue(textEncoder.encode(`0:${JSON.stringify(event.data.chunk)}\n`));
+              } else if (event.event === 'end') {
+                console.log('[API /api/chat POST] Langflow stream \'end\' event. Full response data:', JSON.stringify(event.data));
+                // Cast event.data to our defined type for 'end' events
+                const endEventData = event.data as LangflowEndEventData;
+                // Attempt to extract the full message from the 'end' event
+                const messageText = endEventData?.result?.outputs?.[0]?.outputs?.[0]?.outputs?.message?.message;
+                if (typeof messageText === 'string' && messageText.length > 0) {
+                  console.log('[API /api/chat POST] Enqueuing full message from \'end\' event:', messageText);
+                  controller.enqueue(textEncoder.encode(`0:${JSON.stringify(messageText)}\n`));
+                } else {
+                  console.log('[API /api/chat POST] No message text found in \'end\' event or messageText was empty.');
+                }
+                // The loop will break on next read if 'done' is true, or controller will be closed in finally.
+              } else if (event.event === 'add_message') {
+                console.log('[API /api/chat POST] Langflow \'add_message\' event:', JSON.stringify(event.data));
+                const addEventData = event.data as LangflowAddMessageEventData;
+                if (addEventData.sender === 'Machine' && typeof addEventData.text === 'string' && addEventData.text.length > 0) {
+                  console.log('[API /api/chat POST] Enqueuing text from AI \'add_message\' event:', addEventData.text);
+                  controller.enqueue(textEncoder.encode(`0:${JSON.stringify(addEventData.text)}\n`));
+                }
+              } else {
+                // console.log('[API /api/chat POST] Received other/unknown Langflow event:', JSON.stringify(event));
+              }
+            }
+          } catch (streamError) {
+            console.error('[API /api/chat POST] Error during Langflow stream processing loop:', streamError);
+            controller.error(streamError); // Propagate error to the client response stream
+          } finally {
+            console.log('[API /api/chat POST] Closing ReadableStream controller (finally block).');
             controller.close();
-          },
-        });
-        return new Response(clientStream, { // Send the new simple text stream
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-        });
-      } else {
-        console.error('[API /api/chat POST] Could not extract messageText from Langflow response:', langflowData);
-        return new Response('Error: Could not extract message from Langflow response.', {
-          status: 500,
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-        });
-      }
-    } catch (parseError) {
-      console.error('[API /api/chat POST] Failed to parse Langflow JSON response:', parseError, langflowJsonText);
-      return new Response('Error: Failed to parse Langflow response.', {
-        status: 500,
+          }
+        },
+        cancel(reason) {
+          console.log('[API /api/chat POST] ReadableStream cancelled by consumer. Reason:', reason);
+          // langflow-client's stream might not be directly cancellable via its reader.
+          // If the underlying fetch supports AbortController, client would need to expose that.
+        }
+      });
+
+      console.log('[API /api/chat POST] Returning new Response with ReadableStream.');
+      return new Response(readableStream, {
         headers: { 'Content-Type': 'text/plain; charset=utf-8' },
       });
-    }
 
-    // Fallback if somehow the above logic doesn't return (should not happen)
-    return new Response(rawLangflowStream, {
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-      },
-    });
+    } catch (clientError) {
+      console.error('[API /api/chat POST] Error initializing or calling Langflow client .stream() method:', clientError);
+      // Ensure clientError is an Error instance for consistent logging/handling if needed
+      const errorMessage = clientError instanceof Error ? clientError.message : String(clientError);
+      return new ChatSDKError('bad_request:api', `Failed to connect to Langflow service: ${errorMessage}`).toResponse();
+    }
 
   } catch (error) {
     console.error('[API /api/chat POST] Error in POST handler:', error);
