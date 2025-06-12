@@ -4,13 +4,11 @@ import type { UIMessage } from 'ai';
 import cx from 'classnames';
 import { AnimatePresence, motion } from 'framer-motion';
 import { memo, useState } from 'react';
-import type { Vote } from '@/lib/db/schema';
 import { DocumentToolCall, DocumentToolResult } from './document';
 import { PencilEditIcon, SparklesIcon } from './icons';
 import { Markdown } from './markdown';
 import { MessageActions } from './message-actions';
 import { PreviewAttachment } from './preview-attachment';
-import { Weather } from './weather';
 import equal from 'fast-deep-equal';
 import { cn, sanitizeText } from '@/lib/utils';
 import { Button } from './ui/button';
@@ -23,7 +21,6 @@ import type { UseChatHelpers } from '@ai-sdk/react';
 const PurePreviewMessage = ({
   chatId,
   message,
-  vote,
   isLoading,
   setMessages,
   reload,
@@ -32,7 +29,6 @@ const PurePreviewMessage = ({
 }: {
   chatId: string;
   message: UIMessage;
-  vote: Vote | undefined;
   isLoading: boolean;
   setMessages: UseChatHelpers['setMessages'];
   reload: UseChatHelpers['reload'];
@@ -163,13 +159,9 @@ const PurePreviewMessage = ({
                   return (
                     <div
                       key={toolCallId}
-                      className={cx({
-                        skeleton: ['getWeather'].includes(toolName),
-                      })}
+                      className={cx()}
                     >
-                      {toolName === 'getWeather' ? (
-                        <Weather />
-                      ) : toolName === 'createDocument' ? (
+                      {toolName === 'createDocument' ? (
                         <DocumentPreview isReadonly={isReadonly} args={args} />
                       ) : toolName === 'updateDocument' ? (
                         <DocumentToolCall
@@ -193,9 +185,7 @@ const PurePreviewMessage = ({
 
                   return (
                     <div key={toolCallId}>
-                      {toolName === 'getWeather' ? (
-                        <Weather weatherAtLocation={result} />
-                      ) : toolName === 'createDocument' ? (
+                      {toolName === 'createDocument' ? (
                         <DocumentPreview
                           isReadonly={isReadonly}
                           result={result}
@@ -224,10 +214,8 @@ const PurePreviewMessage = ({
             {!isReadonly && (
               <MessageActions
                 key={`action-${message.id}`}
-                chatId={chatId}
                 message={message}
-                vote={vote}
-                isLoading={isLoading}
+                chatId={chatId}
               />
             )}
           </div>
@@ -245,7 +233,6 @@ export const PreviewMessage = memo(
     if (prevProps.requiresScrollPadding !== nextProps.requiresScrollPadding)
       return false;
     if (!equal(prevProps.message.parts, nextProps.message.parts)) return false;
-    if (!equal(prevProps.vote, nextProps.vote)) return false;
 
     return true;
   },
